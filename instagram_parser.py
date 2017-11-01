@@ -1,13 +1,11 @@
 import os
-import re
-import tempfile
 import time
 import threading
 
-from urllib import request
+from urllib import request, error
 
-import lxml.html as html
 from selenium import webdriver
+from bs4 import BeautifulSoup
 
 INSTAGRAM_LOGIN_PAGE = 'https://www.instagram.com/accounts/login/'
 INSTAGRAM_HOME_PAGE = 'https://www.instagram.com'
@@ -15,7 +13,7 @@ INSTAGRAM_HOME_PAGE = 'https://www.instagram.com'
 # more photos\videos  load partially each scroll-down action
 # we doesn't know for sure how much we need to reach the end
 # let it be 20
-SCROLLS_COUNT = 5
+SCROLLS_COUNT = 1
 
 
 def open_browser_with_options():
@@ -37,19 +35,21 @@ def login(web_browser, account_login, account_password):
     login with setted login and password account to instagram via opened webdriver
     :param web_browser: webdriver object
     :param account_login: str with login
-    :param password: str with password
+    :param account_password: str with password
     :return: nothing
     """
     web_browser.get(INSTAGRAM_LOGIN_PAGE)
     time.sleep(1)  # give browser some time to load
 
     # find a login field
-    login_field = web_browser.find_element_by_css_selector(
-        "#react-root > section > main > div > article > div > div:nth-child(1) > div > form > div:nth-child(1) > div > input")
+    login_field = web_browser.find_element_by_css_selector("#react-root > section > main > div > article > div > "
+                                                           "div:nth-child(1) > div > form > div:nth-child(1) > div > "
+                                                           "input")
 
     # fidn a password field
-    password_field = web_browser.find_element_by_css_selector(
-        "#react-root > section > main > div > article > div > div:nth-child(1) > div > form > div:nth-child(2) > div > input")
+    password_field = web_browser.find_element_by_css_selector("#react-root > section > main > div > article > div >"
+                                                              " div:nth-child(1) > div > form > div:nth-child(2) >"
+                                                              " div > input")
 
     # a little user-emulation:
     # click on each field and enter text inside
@@ -62,8 +62,8 @@ def login(web_browser, account_login, account_password):
     password_field.send_keys(account_password)
 
     # find login button and click on it with a little delay
-    login_button = browser.find_element_by_xpath(
-        '//*[@id="react-root"]/section/main/div/article/div/div[1]/div/form/span/button')
+    login_button = browser.find_element_by_xpath('//*[@id="react-root"]/section/main/div/article/div/div[1]/div/'
+                                                 'form/span/button')
 
     time.sleep(1)
 
@@ -77,14 +77,11 @@ def switch_to_needed_account(web_browser, account_name):
     switching to instagram/account_name/ page to parse the videos
     :param web_browser: webdriver object
     :param account_name: profile name as str
-    :return: temp_file path with page_source
+    :return: page source
     """
 
     # create the global link
     web_browser.get(INSTAGRAM_HOME_PAGE + "/" + account_name + "/?hl=ru")
-
-    # create filepath to temp directory
-    tmp_file = os.path.join(tempfile.gettempdir(), "insta_profile.txt")
 
     # scroll down to find expand all posts in profile
     web_browser.execute_script("window.scrollTo(0, document.body.scrollHeight);")
@@ -98,37 +95,22 @@ def switch_to_needed_account(web_browser, account_name):
     for scroll in range(SCROLLS_COUNT):
         web_browser.execute_script("window.scrollTo(0, document.body.scrollHeight);")
         time.sleep(2)
-
-    # save all page source
-    with open(tmp_file, "w", encoding="utf-8") as fp:
-        fp.write(web_browser.page_source)
-
-    return tmp_file
+    return web_browser.page_source
 
 
-def parse_profile(source_file):
+def parse_profile(source_page):
     """
     parse insta profile source page to find link on video
-    :param source_file: filepath
+    :param source_page: str with page source
     :return: list with strings, contains urls on videos
     """
-    correct_url_re = re.compile(r'.*?taken-by=\w+$')
 
-    # parse all links from source page with lxml.html lib
-    opened_page = html.parse(source_file)
-    urls = list(opened_page.getroot().iterlinks())
+    soup = BeautifulSoup(source_page, 'lxml')
 
-    video_urls = list()
-    for url in urls:
-        # filter some trash and notneeded links,only with correct_url_re regex
-        if correct_url_re.match(url[2]):
-            # look for url with video icon inside on of a child, it mark that it's link on video
-            video_icons = url[0].xpath('*/div/span[contains(@class, "coreSpriteVideoIconLarge")]')
-            video_icons_counter = len(video_icons)
-            # if url contain video icon, so it's a video, add it to the list
-            if video_icons_counter:
-                video_urls.append(url[2])
-    return video_urls
+    # <a href='''><div><div><img ></div></div><div ><div ><span class='_my8ed _8scx2 coreSpriteVideoIconLarge'>"
+    # Видео</span></div></div></a>"
+
+    return [url.parent.parent.parent['href'] for url in soup.find_all(class_="coreSpriteVideoIconLarge")]
 
 
 def parse_video_urls(web_browser, urls):
@@ -152,7 +134,7 @@ def download_file(link, file_name):
     try:
         request.urlretrieve(link, file_name)
         result = "success"
-    except:
+    except error.URLError:
         result = "fail"
     finally:
         print(f"{time.ctime()}: {link} - {result}\n")
@@ -167,7 +149,10 @@ def download_video_files(urls, account):
     """
     folder = os.path.join(os.path.expanduser("~"), "Downloads")
     acc_folder = os.path.join(folder, account)
-    os.mkdir(acc_folder)
+    try:
+        os.mkdir(acc_folder)
+    except FileExistsError:
+        pass
 
     threads = []
 
@@ -184,6 +169,7 @@ if __name__ == "__main__":
     TEST_LOGIN = input("Login: ")
     TEST_PASSWORD = input("Password: ")
     NEEDED_ACCOUNT = input("Instagram Account: ")
+    
     if TEST_LOGIN and TEST_PASSWORD and NEEDED_ACCOUNT:
         # create webdriver object
         browser = open_browser_with_options()
