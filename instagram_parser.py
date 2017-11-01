@@ -1,8 +1,9 @@
 import os
-import os.path as path
 import re
 import tempfile
 import time
+import threading
+
 from urllib import request
 
 import lxml.html as html
@@ -10,10 +11,11 @@ from selenium import webdriver
 
 INSTAGRAM_LOGIN_PAGE = 'https://www.instagram.com/accounts/login/'
 INSTAGRAM_HOME_PAGE = 'https://www.instagram.com'
-
-TEST_LOGIN = ""
-TEST_PASSWORD = ""
-NEEDED_ACCOUNT = ""
+# scrolls_count - how much it will scroll the profile
+# more photos\videos  load partially each scroll-down action
+# we doesn't know for sure how much we need to reach the end
+# let it be 20
+SCROLLS_COUNT = 5
 
 
 def open_browser_with_options():
@@ -30,11 +32,11 @@ def open_browser_with_options():
     return webdriver.Chrome(chrome_options=options)
 
 
-def login(web_browser, login, password):
+def login(web_browser, account_login, account_password):
     """
     login with setted login and password account to instagram via opened webdriver
     :param web_browser: webdriver object
-    :param login: str with login
+    :param account_login: str with login
     :param password: str with password
     :return: nothing
     """
@@ -54,10 +56,10 @@ def login(web_browser, login, password):
     # this makes login button become visible, et least for now
 
     login_field.click()
-    login_field.send_keys(login)
+    login_field.send_keys(account_login)
 
     password_field.click()
-    password_field.send_keys(password)
+    password_field.send_keys(account_password)
 
     # find login button and click on it with a little delay
     login_button = browser.find_element_by_xpath(
@@ -82,7 +84,7 @@ def switch_to_needed_account(web_browser, account_name):
     web_browser.get(INSTAGRAM_HOME_PAGE + "/" + account_name + "/?hl=ru")
 
     # create filepath to temp directory
-    tmp_file = path.join(tempfile.gettempdir(), "insta_profile.txt")
+    tmp_file = os.path.join(tempfile.gettempdir(), "insta_profile.txt")
 
     # scroll down to find expand all posts in profile
     web_browser.execute_script("window.scrollTo(0, document.body.scrollHeight);")
@@ -93,12 +95,7 @@ def switch_to_needed_account(web_browser, account_name):
 
     time.sleep(2)
 
-    # scrolls_count - how much it will scroll the profile
-    # more photos\videos  load partially each scroll-down action
-    # we doesn't know for sure how much we need to reach the end
-    # let it be 20
-    scrolls_count = 20
-    for scroll in range(scrolls_count):
+    for scroll in range(SCROLLS_COUNT):
         web_browser.execute_script("window.scrollTo(0, document.body.scrollHeight);")
         time.sleep(2)
 
@@ -151,53 +148,58 @@ def parse_video_urls(web_browser, urls):
     return videos
 
 
+def download_file(link, file_name):
+    try:
+        request.urlretrieve(link, file_name)
+        result = "success"
+    except:
+        result = "fail"
+    finally:
+        print(f"{time.ctime()}: {link} - {result}\n")
+
+
 def download_video_files(urls, account):
     """
-    simple download files in ~/Downlads/profile_folder
-    saves log file ~/Downlaods/insta_downloader_log_file.txt
-    with urls on videos and result of downloading
-    sometimes there is a 404error happen unexpectedly, if so,
-    it will be possible to download it manually.
+    simple download files in ~/Downloads/profile_folder
     :param urls: str list
+    :param account str
     :return: nothing
     """
-    folder = path.join(path.expanduser("~"), "Downloads")
-    acc_folder = path.join(folder, account)
+    folder = os.path.join(os.path.expanduser("~"), "Downloads")
+    acc_folder = os.path.join(folder, account)
     os.mkdir(acc_folder)
 
-    log_file = path.join(folder, "insta_downloader_log_file.txt")
+    threads = []
 
-    with open(log_file, "a") as fp:
-        for numb, link in enumerate(urls):
-            file_name = path.join(acc_folder, f"{account}_{numb}.mp4")
-            try:
-                request.urlretrieve(link, file_name)
-                result = "success"
-            except:
-                print(link, "downloading failed")
-                result = "fail"
-            finally:
-                fp.write(f"{time.ctime()}: {link} - {result}\n")
+    for numb, link in enumerate(urls):
+        file_name = os.path.join(acc_folder, f"{account}_{numb}.mp4")
+        thread = threading.Thread(target=download_file, args=(link, file_name))
+        threads.append(thread)
+        thread.start()
+
+    [thread.join() for thread in threads]
 
 
 if __name__ == "__main__":
-    # create webdriver object
-    browser = open_browser_with_options()
+    TEST_LOGIN = input("Login: ")
+    TEST_PASSWORD = input("Password: ")
+    NEEDED_ACCOUNT = input("Instagram Account: ")
+    if TEST_LOGIN and TEST_PASSWORD and NEEDED_ACCOUNT:
+        # create webdriver object
+        browser = open_browser_with_options()
 
-    # login with TEST_LOGIN and TEST_PASSWORD
-    login(browser, TEST_LOGIN, TEST_PASSWORD)
+        # login with TEST_LOGIN and TEST_PASSWORD
+        login(browser, TEST_LOGIN, TEST_PASSWORD)
 
-    # switch to needed page and save it to tmp file
-    saved_page = switch_to_needed_account(browser, NEEDED_ACCOUNT)
+        # switch to needed page and save it to tmp file
+        saved_page = switch_to_needed_account(browser, NEEDED_ACCOUNT)
 
-    # parse tmp file to find video pages
-    video_pages = parse_profile(saved_page)
+        # parse tmp file to find video pages
+        video_pages = parse_profile(saved_page)
 
-    # go to each video page and take video url from there
-    video_urls = parse_video_urls(browser, video_pages)
+        # go to each video page and take video url from there
+        video_urls = parse_video_urls(browser, video_pages)
 
-    browser.close()
+        browser.close()
 
-    # download video files to ~/Downloads/NEEDED_ACCOUNT/
-    # with log file in ~/Downloads/insta_downloader_log_file.txt
-    download_video_files(video_urls, NEEDED_ACCOUNT)
+        download_video_files(video_urls, NEEDED_ACCOUNT)
