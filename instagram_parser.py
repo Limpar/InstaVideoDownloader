@@ -110,7 +110,16 @@ def parse_profile(source_page):
     # <a href='''><div><div><img ></div></div><div ><div ><span class='_my8ed _8scx2 coreSpriteVideoIconLarge'>"
     # Видео</span></div></div></a>"
 
-    return [url.parent.parent.parent['href'] for url in soup.find_all(class_="coreSpriteVideoIconLarge")]
+    local_urls = []
+    for url in soup.find_all(class_="coreSpriteVideoIconLarge"):
+        try:
+            parsed_url = url.parent.parent.parent['href']
+            local_urls.append(parsed_url)
+        except (KeyError, AttributeError):
+            print(f"{url} 3rd parent wasn't found")
+            continue
+
+    return local_urls
 
 
 def parse_video_urls(web_browser, urls):
