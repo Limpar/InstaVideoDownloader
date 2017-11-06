@@ -13,7 +13,7 @@ INSTAGRAM_HOME_PAGE = 'https://www.instagram.com'
 # more photos\videos  load partially each scroll-down action
 # we doesn't know for sure how much we need to reach the end
 # let it be 20
-SCROLLS_COUNT = 1
+SCROLLS_COUNT = 10
 
 
 def open_browser_with_options():
@@ -87,10 +87,10 @@ def switch_to_needed_account(web_browser, account_name):
     web_browser.execute_script("window.scrollTo(0, document.body.scrollHeight);")
 
     # find button "load more" and click on it, wait loading
-    load_button = web_browser.find_element_by_xpath('//*[@id="react-root"]/section/main/article/div/a')
-    load_button.click()
+    # load_button = web_browser.find_element_by_xpath('//*[@id="react-root"]/section/main/article/div/a')
+    # load_button.click()
 
-    time.sleep(2)
+    # time.sleep(2)
 
     for scroll in range(SCROLLS_COUNT):
         web_browser.execute_script("window.scrollTo(0, document.body.scrollHeight);")
