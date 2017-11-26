@@ -16,6 +16,7 @@ INSTAGRAM_HOME_PAGE = 'https://www.instagram.com'
 SCROLLS_COUNT = 1
 
 
+
 def open_browser_with_options():
     """
     opens Chrome browser with some special attributes
@@ -178,7 +179,7 @@ if __name__ == "__main__":
     TEST_LOGIN = input("Login: ")
     TEST_PASSWORD = input("Password: ")
     NEEDED_ACCOUNT = input("Instagram Account: ")
-    
+
     if TEST_LOGIN and TEST_PASSWORD and NEEDED_ACCOUNT:
         # create webdriver object
         browser = open_browser_with_options()
