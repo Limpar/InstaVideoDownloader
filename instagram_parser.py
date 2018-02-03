@@ -1,11 +1,21 @@
 import os
 import time
 import threading
+import re
 
 from urllib import request, error
 
 from selenium import webdriver
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, SoupStrainer
+from selenium.webdriver.common.by import By
+from selenium.common.exceptions import TimeoutException
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions
+from reportlab.pdfgen.canvas import Canvas
+from reportlab.lib.units import inch, cm
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase import ttfonts
 
 INSTAGRAM_LOGIN_PAGE = 'https://www.instagram.com/accounts/login/'
 INSTAGRAM_HOME_PAGE = 'https://www.instagram.com'
@@ -13,8 +23,8 @@ INSTAGRAM_HOME_PAGE = 'https://www.instagram.com'
 # more photos\videos  load partially each scroll-down action
 # we doesn't know for sure how much we need to reach the end
 # let it be 20
-SCROLLS_COUNT = 10
-
+SCROLLS_COUNT = 15
+WAIT_IN_SECS = 5
 
 
 def open_browser_with_options():
@@ -31,72 +41,74 @@ def open_browser_with_options():
     return webdriver.Chrome(chrome_options=options)
 
 
-def login(web_browser, account_login, account_password):
+def login():
     """
     login with setted login and password account to instagram via opened webdriver
-    :param web_browser: webdriver object
     :param account_login: str with login
     :param account_password: str with password
     :return: nothing
     """
-    web_browser.get(INSTAGRAM_LOGIN_PAGE)
+    BROWSER.get(INSTAGRAM_LOGIN_PAGE)
     time.sleep(1)  # give browser some time to load
 
     # find a login field
-    login_field = web_browser.find_element_by_css_selector("#react-root > section > main > div > article > div > "
-                                                           "div:nth-child(1) > div > form > div:nth-child(1) > div > "
-                                                           "input")
+    login_field = find_by(By.XPATH,
+                          '//input[@name="username"]')
 
     # fidn a password field
-    password_field = web_browser.find_element_by_css_selector("#react-root > section > main > div > article > div >"
-                                                              " div:nth-child(1) > div > form > div:nth-child(2) >"
-                                                              " div > input")
+    password_field = find_by(By.XPATH,
+                             '//input[@name="password"]')
 
     # a little user-emulation:
     # click on each field and enter text inside
     # this makes login button become visible, et least for now
+    if login_field and password_field:
+        login_field.click()
+        login_field.send_keys(LOGIN)
 
-    login_field.click()
-    login_field.send_keys(account_login)
+        password_field.click()
+        password_field.send_keys(PASSWORD)
 
-    password_field.click()
-    password_field.send_keys(account_password)
+        # find login button and click on it with a little delay
+        login_button = find_by(By.XPATH, '//button')
 
-    # find login button and click on it with a little delay
-    login_button = browser.find_element_by_xpath('//*[@id="react-root"]/section/main/div/article/div/div[1]/div/'
-                                                 'form/span/button')
+        if login_button:
+            login_button.click()
+            time.sleep(1)
 
-    time.sleep(1)
+            # code_field = find_by(By.XPATH, '//input[@name="verificationCode"')
+            # if code_field:
+            #     code_field.click()
+            #     code_field.send_keys(BACKUP_CODE)
+            #     confirm = find_by(By.XPATH, '//button')
+            #     if confirm:
+            #         confirm.click()
 
-    login_button.click()
 
-    time.sleep(1)
-
-
-def switch_to_needed_account(web_browser, account_name):
+def switch_to_needed_account():
     """
     switching to instagram/account_name/ page to parse the videos
-    :param web_browser: webdriver object
     :param account_name: profile name as str
     :return: page source
     """
 
     # create the global link
-    web_browser.get(INSTAGRAM_HOME_PAGE + "/" + account_name + "/?hl=ru")
+    BROWSER.get(INSTAGRAM_HOME_PAGE + "/" + NEEDED_ACCOUNT + "/?hl=ru")
 
     # scroll down to find expand all posts in profile
-    web_browser.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+    BROWSER.execute_script("window.scrollTo(0, document.body.scrollHeight);")
 
     # find button "load more" and click on it, wait loading
-    # load_button = web_browser.find_element_by_xpath('//*[@id="react-root"]/section/main/article/div/a')
-    # load_button.click()
+    load_button = find_by(By.XPATH, '//*[@id="react-root"]/section/main/article/div/a')
+    if load_button:
+        load_button.click()
 
     # time.sleep(2)
 
     for scroll in range(SCROLLS_COUNT):
-        web_browser.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        BROWSER.execute_script("window.scrollTo(0, document.body.scrollHeight);")
         time.sleep(2)
-    return web_browser.page_source
+    return BROWSER.page_source
 
 
 def parse_profile(source_page):
@@ -105,69 +117,83 @@ def parse_profile(source_page):
     :param source_page: str with page source
     :return: list with strings, contains urls on videos
     """
+    video_urls = []
+    text_urls = []
 
-    soup = BeautifulSoup(source_page, 'lxml')
+    text_filter = SoupStrainer(name='a', href=re.compile(f'taken-by={NEEDED_ACCOUNT}'))
 
-    # <a href='''><div><div><img ></div></div><div ><div ><span class='_my8ed _8scx2 coreSpriteVideoIconLarge'>"
-    # Видео</span></div></div></a>"
+    for url in BeautifulSoup(source_page, 'lxml', parse_only=text_filter).find_all('a'):
+        for child in url.descendants:
+            try:
+                if 'coreSpriteVideoIconLarge' in child.attrs.get('class', []):
+                    video_urls.append(url.attrs.get('href', ''))
+                    break
+            except AttributeError:
+                pass
+        else:
+            image = url.find_all('img')
+            if image:
+                image = image[0]
+                img_dict = {
+                    'url': image.get('src', ''),
+                    'text': image.get('alt', 'no text')
+                }
+            text_urls.append(img_dict)
 
-    local_urls = []
-    for url in soup.find_all(class_="coreSpriteVideoIconLarge"):
-        try:
-            parsed_url = url.parent.parent.parent['href']
-            local_urls.append(parsed_url)
-        except (KeyError, AttributeError):
-            print(f"{url} 3rd parent wasn't found")
-            continue
-
-    return local_urls
+    return video_urls, text_urls
 
 
-def parse_video_urls(web_browser, urls):
+def parse_video_urls(urls):
     """
     just opens a video url and parses global video url
-    :param web_browser: webdriver object
     :param urls: urls on pages with video
     :return: global video urls list
     """
     videos = list()
     for url in urls:
         global_url = INSTAGRAM_HOME_PAGE + url
-        web_browser.get(global_url)
-        video_link = web_browser.find_element_by_xpath("//video[1]")
+        BROWSER.get(global_url)
+        video_link = find_by(By.XPATH, "//video[1]")
         videos.append(video_link.get_attribute("src"))
-        time.sleep(1)
     return videos
 
 
 def download_file(link, file_name):
     try:
         request.urlretrieve(link, file_name)
-        result = "success"
     except error.URLError:
-        result = "fail"
-    finally:
-        print(f"{time.ctime()}: {link} - {result}\n")
+        pass
+    except ConnectionResetError:
+        print(link)
 
 
-def download_video_files(urls, account):
+def save_folder():
+    folder = os.path.join(os.path.expanduser("~"), "Downloads")
+    acc_folder = os.path.join(folder, NEEDED_ACCOUNT)
+    add_folder(acc_folder)
+    return acc_folder
+
+
+def add_folder(folder):
+    try:
+        os.mkdir(folder)
+    except FileExistsError:
+        pass
+
+
+def download_video_files(urls):
     """
     simple download files in ~/Downloads/profile_folder
     :param urls: str list
     :param account str
     :return: nothing
     """
-    folder = os.path.join(os.path.expanduser("~"), "Downloads")
-    acc_folder = os.path.join(folder, account)
-    try:
-        os.mkdir(acc_folder)
-    except FileExistsError:
-        pass
+    acc_folder = save_folder()
 
     threads = []
 
     for numb, link in enumerate(urls):
-        file_name = os.path.join(acc_folder, f"{account}_{numb}.mp4")
+        file_name = os.path.join(acc_folder, f"{numb}.mp4")
         thread = threading.Thread(target=download_file, args=(link, file_name))
         threads.append(thread)
         thread.start()
@@ -175,27 +201,91 @@ def download_video_files(urls, account):
     [thread.join() for thread in threads]
 
 
+def find_by(type_, mask):
+    try:
+        element = WebDriverWait(BROWSER, WAIT_IN_SECS).until(
+            expected_conditions.visibility_of_element_located((type_, mask)))
+    except TimeoutException:
+        element = None
+    finally:
+        return element
+
+
+def save_texts(texts):
+    """
+
+    :param texts:
+    [{'url': image.get('src', ''),
+      'text': image.get('alt', '')
+    },
+    ]
+    :return:
+    """
+    main_path = save_folder()
+    img_path = os.path.join(main_path, 'img')
+    add_folder(img_path)
+
+    for i, text in enumerate(texts):
+        with open(os.path.join(img_path, f'{i}.txt'), 'w') as f:
+            f.write(text.get('text', 'no text'))
+        img_url = text.get('url', '')
+        if img_url:
+            file_name = os.path.join(img_path, f'{i}.jpg')
+            download_file(img_url, file_name)
+    _to_pdf(len(texts))
+
+def _to_pdf(size=0):
+    main_path = save_folder()
+    file_path = os.path.join(main_path, f'{NEEDED_ACCOUNT}.pdf')
+    img_path = os.path.join(main_path, 'img')
+
+    image_w, image_h = 130, 130
+
+
+    pdf = Canvas(file_path, pagesize=A4)
+    my_font = ttfonts.TTFont('tms', 'TIMCYR.TTF')
+    pdfmetrics.registerFont(my_font)
+    pdf.setFont('tms', 10)
+
+    for i in range(size-1, -1, -1):
+        image_file = os.path.join(img_path, f'{i}.jpg')
+        text_file = os.path.join(img_path, f'{i}.txt')
+
+        rhyme = pdf.beginText(inch * 1, inch * 10)
+        with open(text_file, 'r') as f:
+            for line in f.readlines():
+                rhyme.textLine('')
+
+        pdf.drawText(rhyme)
+        #pdf.drawImage(image_file, 0, 0, 10 * cm, 10 * cm)
+        pdf.showPage()
+    pdf.save()
+
+
+
+
+
 if __name__ == "__main__":
-    TEST_LOGIN = input("Login: ")
-    TEST_PASSWORD = input("Password: ")
+
+    TEST = False
+    LOGIN = input("Login: ")
+    PASSWORD = input("Password: ")
     NEEDED_ACCOUNT = input("Instagram Account: ")
 
-    if TEST_LOGIN and TEST_PASSWORD and NEEDED_ACCOUNT:
-        # create webdriver object
-        browser = open_browser_with_options()
+    #BROWSER = open_browser_with_options()
 
-        # login with TEST_LOGIN and TEST_PASSWORD
-        login(browser, TEST_LOGIN, TEST_PASSWORD)
-
-        # switch to needed page and save it to tmp file
-        saved_page = switch_to_needed_account(browser, NEEDED_ACCOUNT)
-
-        # parse tmp file to find video pages
-        video_pages = parse_profile(saved_page)
-
-        # go to each video page and take video url from there
-        video_urls = parse_video_urls(browser, video_pages)
-
-        browser.close()
-
-        download_video_files(video_urls, NEEDED_ACCOUNT)
+    if TEST:
+        NEEDED_ACCOUNT = 'beyonce'
+    elif LOGIN and PASSWORD and NEEDED_ACCOUNT:
+        pass
+    #     login()
+    #
+    # saved_page = switch_to_needed_account()
+    #
+    # video_pages, texts = parse_profile(saved_page)
+    #
+    # #video_urls = parse_video_urls(video_pages)
+    # BROWSER.close()
+    # #download_video_files(video_urls)
+    # save_texts(texts)
+    _to_pdf(10)
