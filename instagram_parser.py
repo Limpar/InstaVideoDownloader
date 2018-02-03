@@ -11,11 +11,12 @@ from selenium.webdriver.common.by import By
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions
+
 from reportlab.pdfgen.canvas import Canvas
-from reportlab.lib.units import inch, cm
 from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import cm, mm, inch, pica
 from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase import ttfonts
+from reportlab.pdfbase.ttfonts import TTFont
 
 INSTAGRAM_LOGIN_PAGE = 'https://www.instagram.com/accounts/login/'
 INSTAGRAM_HOME_PAGE = 'https://www.instagram.com'
@@ -225,67 +226,77 @@ def save_texts(texts):
     img_path = os.path.join(main_path, 'img')
     add_folder(img_path)
 
+    threads = []
+
     for i, text in enumerate(texts):
-        with open(os.path.join(img_path, f'{i}.txt'), 'w') as f:
-            f.write(text.get('text', 'no text'))
+        with open(os.path.join(img_path, f'{i}.txt'), 'bw') as f:
+            f.write(text.get('text', 'no text').encode('utf8'))
         img_url = text.get('url', '')
         if img_url:
             file_name = os.path.join(img_path, f'{i}.jpg')
-            download_file(img_url, file_name)
+            thread = threading.Thread(target=download_file, args=(img_url, file_name))
+            threads.append(thread)
+            thread.start()
+    [thread.join() for thread in threads]
     _to_pdf(len(texts))
+
 
 def _to_pdf(size=0):
     main_path = save_folder()
     file_path = os.path.join(main_path, f'{NEEDED_ACCOUNT}.pdf')
     img_path = os.path.join(main_path, 'img')
 
-    image_w, image_h = 130, 130
-
-
     pdf = Canvas(file_path, pagesize=A4)
-    my_font = ttfonts.TTFont('tms', 'TIMCYR.TTF')
-    pdfmetrics.registerFont(my_font)
-    pdf.setFont('tms', 10)
+    pdfmetrics.registerFont(TTFont('tms', 'TIMCYR.TTF'))
 
-    for i in range(size-1, -1, -1):
+    width, height = A4
+
+    image_size = width - 400
+    position_x = (width - image_size) // 2
+    position_y = height - image_size - 10
+    line_size = 200
+
+    for i in range(size - 1, -1, -1):
+        pdf.setFont('tms', 10)
+        rhyme = pdf.beginText(10, position_y - 10)
         image_file = os.path.join(img_path, f'{i}.jpg')
         text_file = os.path.join(img_path, f'{i}.txt')
-
-        rhyme = pdf.beginText(inch * 1, inch * 10)
-        with open(text_file, 'r') as f:
+        with open(text_file, 'br') as f:
             for line in f.readlines():
-                rhyme.textLine('')
+                if len(line) > line_size:
+                    start, end = 0, line_size
+                    while start <= len(line):
+                        rhyme.textLine(line[start: end].decode('utf8', 'replace'))
+                        start, end = end, end + line_size
+                else:
+                    rhyme.textLine(line.decode('utf8', 'replace'))
+        pdf.drawImage(image_file, position_x, position_y, image_size, image_size)
 
         pdf.drawText(rhyme)
-        #pdf.drawImage(image_file, 0, 0, 10 * cm, 10 * cm)
         pdf.showPage()
     pdf.save()
-
-
-
 
 
 if __name__ == "__main__":
 
     TEST = False
-    LOGIN = input("Login: ")
-    PASSWORD = input("Password: ")
-    NEEDED_ACCOUNT = input("Instagram Account: ")
 
-    #BROWSER = open_browser_with_options()
+    BROWSER = open_browser_with_options()
 
     if TEST:
         NEEDED_ACCOUNT = 'beyonce'
-    elif LOGIN and PASSWORD and NEEDED_ACCOUNT:
-        pass
-    #     login()
-    #
-    # saved_page = switch_to_needed_account()
-    #
-    # video_pages, texts = parse_profile(saved_page)
-    #
-    # #video_urls = parse_video_urls(video_pages)
-    # BROWSER.close()
-    # #download_video_files(video_urls)
-    # save_texts(texts)
-    _to_pdf(10)
+    else:
+        LOGIN = input("Login: ")
+        PASSWORD = input("Password: ")
+        NEEDED_ACCOUNT = input("Instagram Account: ")
+        login()
+
+    saved_page = switch_to_needed_account()
+
+    video_pages, texts = parse_profile(saved_page)
+
+    video_urls = parse_video_urls(video_pages)
+    BROWSER.close()
+
+    download_video_files(video_urls)
+    save_texts(texts)
