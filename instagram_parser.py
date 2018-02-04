@@ -14,16 +14,12 @@ from selenium.webdriver.support import expected_conditions
 
 from reportlab.pdfgen.canvas import Canvas
 from reportlab.lib.pagesizes import A4
-from reportlab.lib.units import cm, mm, inch, pica
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
 INSTAGRAM_LOGIN_PAGE = 'https://www.instagram.com/accounts/login/'
 INSTAGRAM_HOME_PAGE = 'https://www.instagram.com'
-# scrolls_count - how much it will scroll the profile
-# more photos\videos  load partially each scroll-down action
-# we doesn't know for sure how much we need to reach the end
-# let it be 20
+DOWNLOAD_FOLDER = r'D:\\Projects'
 SCROLLS_COUNT = 15
 WAIT_IN_SECS = 5
 
@@ -169,8 +165,10 @@ def download_file(link, file_name):
 
 
 def save_folder():
-    folder = os.path.join(os.path.expanduser("~"), "Downloads")
-    acc_folder = os.path.join(folder, NEEDED_ACCOUNT)
+    global DOWNLOAD_FOLDER
+    if not os.path.isdir(DOWNLOAD_FOLDER):
+        DOWNLOAD_FOLDER = os.path.join(os.path.expanduser('~'), 'Downloads')
+    acc_folder = os.path.join(DOWNLOAD_FOLDER, NEEDED_ACCOUNT)
     add_folder(acc_folder)
     return acc_folder
 
@@ -184,7 +182,6 @@ def add_folder(folder):
 
 def download_video_files(urls):
     """
-    simple download files in ~/Downloads/profile_folder
     :param urls: str list
     :param account str
     :return: nothing
@@ -277,6 +274,11 @@ def _to_pdf(size=0):
     pdf.save()
 
 
+def get_creds():
+    with open('cred', 'r') as f:
+        creds = f.readlines()[0]
+    return creds.split()
+
 if __name__ == "__main__":
 
     TEST = False
@@ -286,9 +288,7 @@ if __name__ == "__main__":
     if TEST:
         NEEDED_ACCOUNT = 'beyonce'
     else:
-        LOGIN = input("Login: ")
-        PASSWORD = input("Password: ")
-        NEEDED_ACCOUNT = input("Instagram Account: ")
+        LOGIN, PASSWORD, NEEDED_ACCOUNT = get_creds()
         login()
 
     saved_page = switch_to_needed_account()
@@ -300,3 +300,4 @@ if __name__ == "__main__":
 
     download_video_files(video_urls)
     save_texts(texts)
+
